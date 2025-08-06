@@ -1,0 +1,40 @@
+{
+  "files.exclude": {
+    "**/._*": true,
+    "**/node_modules": false,
+    "**/.cache": true,
+    "build": true
+  },
+  "emmet.triggerExpansionOnTab": false,
+  "editor.tabSize": 2,
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "files.readonlyInclude": {
+    "**/convex/_generated/*": true
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  // Add these ESLint settings
+  "eslint.useFlatConfig": true,
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "eslint.workingDirectories": [{ "mode": "auto" }]
+}

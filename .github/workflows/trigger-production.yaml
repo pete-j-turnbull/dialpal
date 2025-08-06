@@ -1,0 +1,24 @@
+name: 🛠️ Deploy Trigger.dev - Production
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "trigger.config.ts"
+      - "convex/**/trigger/**"
+      - ".github/workflows/_deploy-trigger.yaml"
+      - ".github/workflows/trigger-production.yaml"
+
+concurrency: ${{ github.workflow }}
+
+jobs:
+  deploy:
+    name: Deploy
+    uses: ./.github/workflows/_deploy-trigger.yaml
+    with:
+      ENVIRONMENT: production
+    secrets: inherit

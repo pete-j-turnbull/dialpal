@@ -1,0 +1,29 @@
+name: 🗒️ Deploy Convex (template)
+
+on:
+  workflow_call:
+    inputs:
+      ENVIRONMENT:
+        type: string
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy Convex
+    environment: ${{ inputs.ENVIRONMENT }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Deps
+        uses: ./.github/actions/install-deps
+
+      - name: 🚀 Deploy Convex
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          npx convex deploy

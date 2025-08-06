@@ -1,0 +1,27 @@
+name: 🛠️ Deploy Vercel - Production
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "vercel.json"
+      - "src/**"
+      - "convex/_generated/**"
+      - "packages/render-engine/**"
+      - "packages/video-templates/**"
+      - ".github/workflows/_deploy-vercel.yaml"
+      - ".github/workflows/vercel-production.yaml"
+
+concurrency: ${{ github.workflow }}
+
+jobs:
+  deploy:
+    name: Deploy
+    uses: ./.github/workflows/_deploy-vercel.yaml
+    with:
+      ENVIRONMENT: production
+    secrets: inherit

@@ -1,0 +1,35 @@
+name: 🗒️ Deploy Vercel (template)
+
+on:
+  workflow_call:
+    inputs:
+      ENVIRONMENT:
+        type: string
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy Vercel
+    environment: ${{ inputs.ENVIRONMENT }}
+    env:
+      ENVIRONMENT: ${{ inputs.ENVIRONMENT }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_SCOPE: ${{ vars.VERCEL_SCOPE }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 🚀 Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-org-id: ${{ vars.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ vars.VERCEL_PROJECT_ID }}
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-args: ${{ inputs.ENVIRONMENT == 'production' && '--prod' || '' }}
+          scope: ${{ vars.VERCEL_SCOPE }}

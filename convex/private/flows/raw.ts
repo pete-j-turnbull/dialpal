@@ -1,0 +1,29 @@
+import { privateQuery, privateMutation } from "@convex/functions";
+import * as module from "@convex/modules/flows/raw";
+import { updateArgsSchema } from "@convex/modules/flows/raw/schemas";
+import { FlowRaw } from "@convex/schema/flows";
+import { v } from "convex/values";
+
+export const get = privateQuery({
+  args: { id: v.id("flows") },
+  handler: async (ctx, args): Promise<FlowRaw | null> => {
+    return await module.get(ctx, args);
+  },
+});
+
+export const update = privateMutation({
+  args: {
+    id: v.id("flows"),
+    data: updateArgsSchema,
+  },
+  handler: async (ctx, args) => {
+    return await module.update(ctx, args);
+  },
+});
+
+export const fetchRequiredDataForTemplate = privateQuery({
+  args: { id: v.id("flows") },
+  handler: async (ctx, args) => {
+    return await module.fetchRequiredDataForTemplate(ctx, args);
+  },
+});

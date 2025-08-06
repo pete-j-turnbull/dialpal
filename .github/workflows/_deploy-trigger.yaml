@@ -1,0 +1,32 @@
+name: 🗒️ Deploy Trigger.dev (template)
+
+on:
+  workflow_call:
+    inputs:
+      ENVIRONMENT:
+        type: string
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy Trigger.dev
+    environment: ${{ inputs.ENVIRONMENT }}
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    env:
+      ENVIRONMENT: ${{ inputs.ENVIRONMENT }}
+      TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Deps
+        uses: ./.github/actions/install-deps
+
+      - name: 🚀 Deploy Trigger.dev
+        working-directory: ./
+        env:
+          TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
+        run: pnpm deploy:trigger --env ${{ inputs.ENVIRONMENT }} --skip-update-check

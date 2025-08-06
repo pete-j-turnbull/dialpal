@@ -1,0 +1,24 @@
+name: 🛠️ Deploy Convex - Production
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "package.json"
+      - "package-lock.json"
+      - "convex/**"
+      - "packages/**"
+      - ".github/workflows/_deploy-convex.yaml"
+      - ".github/workflows/convex-production.yaml"
+
+concurrency: ${{ github.workflow }}
+
+jobs:
+  deploy:
+    name: Deploy
+    uses: ./.github/workflows/_deploy-convex.yaml
+    with:
+      ENVIRONMENT: production
+    secrets: inherit
