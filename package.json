@@ -1,5 +1,5 @@
 {
-  "name": "dialpal",
+  "name": "jolt",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -24,9 +24,6 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.25.2",
-    "@aws-sdk/client-s3": "3.631.0",
-    "@aws-sdk/lib-storage": "3.631.0",
-    "@aws-sdk/s3-request-presigner": "3.631.0",
     "@clerk/backend": "^2.3.0",
     "@clerk/nextjs": "^6.22.0",
     "@convex-dev/action-cache": "^0.2.10",
@@ -34,7 +31,6 @@
     "@convex-dev/crons": "^0.1.9",
     "@convex-dev/migrations": "^0.2.9",
     "@convex-dev/workflow": "^0.2.4",
-    "@elevenlabs/elevenlabs-js": "^2.4.0",
     "@hookform/resolvers": "^5.1.1",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
@@ -65,9 +61,6 @@
     "@trigger.dev/build": "4.0.0-v4-beta.26",
     "@trigger.dev/react-hooks": "4.0.0-v4-beta.26",
     "@trigger.dev/sdk": "4.0.0-v4-beta.26",
-    "@uppy/aws-s3": "^4.2.3",
-    "@uppy/core": "^4.4.7",
-    "@vidstack/react": "1.12.13",
     "axios": "^1.10.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -151,5 +144,6 @@
     "typescript": "^5.8.3",
     "vite": "^6.2.4",
     "vitest": "^3.2.4"
-  }
+  },
+  "packageManager": "pnpm@10.12.1+sha1.4bd977ce548dc9fcd1ca0c62838c55646cea6847"
 }

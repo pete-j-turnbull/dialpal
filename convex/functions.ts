@@ -49,32 +49,16 @@ async function withAuthContext(arg: {
   if (!identity.emailVerified) throw new ConvexError("Email not verified");
 
   const clerkUserId = (identity.subject ?? undefined) as string | undefined;
-  const clerkOrgId = (identity["org_id"] ?? undefined) as string | undefined;
-  const isRoot = identity["is_root"] ? true : false;
 
   if ("db" in ctx) {
     return await resolveAuthContext(ctx, {
-      clerkOrgId,
       clerkUserId,
-      isRoot,
     });
   } else {
-    return await ctx.runQuery(internal.modules.auth.index._resolveContext, {
-      clerkOrgId,
+    return await ctx.runQuery(internal.modules.auth.internal.resolveContext, {
       clerkUserId,
-      isRoot,
     });
   }
-}
-
-async function withRootContext(arg: {
-  ctx: QueryCtx | MutationCtx | ActionCtx;
-}): Promise<AuthContext> {
-  const { ctx } = arg;
-  const authContext = await withAuthContext({ ctx });
-  if (!authContext.isRoot) throw new Error("Unauthorized");
-
-  return authContext;
 }
 
 export const protectedQuery = customQuery(
@@ -93,25 +77,6 @@ export const protectedAction = customAction(
   actionRaw,
   customCtx(async (ctx) => {
     return await withAuthContext({ ctx });
-  })
-);
-
-export const rootQuery = customQuery(
-  queryRaw,
-  customCtx(async (ctx) => {
-    return await withRootContext({ ctx });
-  })
-);
-export const rootMutation = customMutation(
-  mutationRaw,
-  customCtx(async (ctx) => {
-    return await withRootContext({ ctx });
-  })
-);
-export const rootAction = customAction(
-  actionRaw,
-  customCtx(async (ctx) => {
-    return await withRootContext({ ctx });
   })
 );
 

@@ -1,7 +1,5 @@
 import { type RequiredDeep } from "type-fest";
 
-// TODO
-
 export type Env = {
   nextPublic: {
     clerkFrontendApiUrl?: string;
@@ -24,13 +22,6 @@ export type Env = {
     sharedSecret?: string;
     deployment?: string;
   };
-  r2: {
-    accountId?: string;
-    accessKeyId?: string;
-    secretAccessKey?: string;
-    bucketName?: string;
-    domain?: string;
-  };
   cache: {
     host?: string;
     port?: number;
@@ -40,22 +31,7 @@ export type Env = {
   trigger: {
     secretKey?: string;
   };
-  renderEngine: {
-    url?: string;
-  };
   claude: {
-    apiKey?: string;
-  };
-  heygen: {
-    apiKey?: string;
-  };
-  elevenlabs: {
-    apiKey?: string;
-  };
-  pexels: {
-    apiKey?: string;
-  };
-  cloudglue: {
     apiKey?: string;
   };
 };
@@ -87,13 +63,6 @@ function getEnv(): Env {
       sharedSecret: process.env.CONVEX_SHARED_SECRET,
       deployment: process.env.CONVEX_DEPLOYMENT ?? "dev",
     },
-    r2: {
-      accountId: process.env.R2_ACCOUNT_ID,
-      accessKeyId: process.env.R2_ACCESS_KEY_ID,
-      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-      bucketName: process.env.R2_BUCKET_NAME,
-      domain: process.env.R2_DOMAIN,
-    },
     cache: {
       host: process.env.CACHE_HOST,
       port: process.env.CACHE_PORT ? parseInt(process.env.CACHE_PORT) : 6379,
@@ -103,23 +72,8 @@ function getEnv(): Env {
     trigger: {
       secretKey: process.env.TRIGGER_SECRET_KEY,
     },
-    renderEngine: {
-      url: process.env.RENDER_ENGINE_URL ?? "http://localhost:7777",
-    },
     claude: {
       apiKey: process.env.CLAUDE_API_KEY,
-    },
-    heygen: {
-      apiKey: process.env.HEYGEN_API_KEY,
-    },
-    elevenlabs: {
-      apiKey: process.env.ELEVENLABS_API_KEY,
-    },
-    pexels: {
-      apiKey: process.env.PEXELS_API_KEY,
-    },
-    cloudglue: {
-      apiKey: process.env.CLOUDGLUE_API_KEY,
     },
   };
 }

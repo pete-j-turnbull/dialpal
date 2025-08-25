@@ -1,7 +1,6 @@
-import { ffmpeg } from "@trigger.dev/build/extensions/core";
 import { defineConfig } from "@trigger.dev/sdk";
 
-const TRIGGER_PROJECT_REF = "TODO";
+const TRIGGER_PROJECT_REF = "proj_pqimsslcnhaypclobhqt";
 
 export default defineConfig({
   project: TRIGGER_PROJECT_REF,
@@ -11,9 +10,9 @@ export default defineConfig({
   // You can override this on an individual task.
   // See https://trigger.dev/docs/runs/max-duration
   maxDuration: 3600,
-  machine: "medium-2x",
+  machine: "small-2x",
   build: {
-    extensions: [ffmpeg()],
+    extensions: [],
     external: [],
   },
   retries: {

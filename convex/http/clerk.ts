@@ -13,78 +13,18 @@ export const clerkWebhookAction = httpAction(async (ctx, request) => {
   switch (event.type) {
     case "user.created": // intentional fallthrough
     case "user.updated":
-      await ctx.runMutation(internal.modules.auth.clerk._upsertUser, {
+      await ctx.runMutation(internal.modules.auth.internal.upsertUser, {
         data: event.data,
       });
       break;
 
     case "user.deleted": {
-      await ctx.runMutation(internal.modules.auth.clerk._deleteUser, {
+      await ctx.runMutation(internal.modules.auth.internal.deleteUser, {
         clerkId: event.data.id!,
       });
       break;
     }
 
-    case "organization.created": // intentional fallthrough
-      break;
-    case "organization.updated":
-      await ctx.runMutation(internal.modules.auth.clerk._upsertOrganization, {
-        data: event.data,
-      });
-
-      break;
-
-    case "organization.deleted":
-      await ctx.runMutation(internal.modules.auth.clerk._deleteOrganization, {
-        clerkId: event.data.id!,
-      });
-      break;
-
-    case "organizationMembership.created":
-    case "organizationMembership.updated":
-      await ctx.runMutation(
-        internal.modules.auth.clerk._upsertOrganizationMembership,
-        {
-          data: event.data,
-        }
-      );
-      break;
-
-    case "organizationMembership.deleted":
-      await ctx.runMutation(
-        internal.modules.auth.clerk._deleteOrganizationMembership,
-        {
-          clerkId: event.data.id!,
-        }
-      );
-      break;
-
-    case "organizationInvitation.created":
-      await ctx.runMutation(
-        internal.modules.auth.clerk._upsertOrganizationInvitation,
-        {
-          data: event.data,
-        }
-      );
-      break;
-
-    case "organizationInvitation.accepted":
-      await ctx.runMutation(
-        internal.modules.auth.clerk._upsertOrganizationInvitation,
-        {
-          data: event.data,
-        }
-      );
-      break;
-
-    case "organizationInvitation.revoked":
-      await ctx.runMutation(
-        internal.modules.auth.clerk._upsertOrganizationInvitation,
-        {
-          data: event.data,
-        }
-      );
-      break;
     default:
       console.log("Ignored Clerk webhook event", event.type);
   }
