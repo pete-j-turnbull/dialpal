@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Google Docs Diff Tracker",
+  "version": "1.0.0",
+  "description": "Tracks text changes in Google Docs and sends diffs to API",
+  "host_permissions": [
+    "https://docs.google.com/*",
+    "https://*.googleusercontent.com/*"
+  ],
+  "permissions": [
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://docs.google.com/document/d/*/edit*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
