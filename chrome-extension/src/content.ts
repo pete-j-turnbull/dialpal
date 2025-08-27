@@ -1,9 +1,4 @@
-import {
-  DiffMatchPatch,
-  DIFF_DELETE,
-  DIFF_INSERT,
-  DIFF_EQUAL,
-} from "./vendor/diff_match_patch";
+import { diffChars, Change } from "diff";
 import { sha256 } from "./lib/hash";
 import { backoffManager } from "./lib/backoff";
 import { DiffEvent, DiffOp, ExtensionState } from "./types";
@@ -12,7 +7,6 @@ import { DiffEvent, DiffOp, ExtensionState } from "./types";
 const API_URL = "https://your.ingest.endpoint/v1/diffs"; // TODO: replace
 const MAX_DOC_SIZE = 2_000_000;
 const SAMPLE_INTERVAL_MS = 30_000;
-const IDLE_TIMEOUT_MS = 120_000;
 
 class GoogleDocsTracker {
   private state: ExtensionState = {
@@ -20,18 +14,13 @@ class GoogleDocsTracker {
     lastHash: null,
     installId: "",
     active: false,
-    typedRecently: false,
     hasInitialFetch: false,
   };
 
   private docId: string = "";
-  private dmp: DiffMatchPatch;
   private pollTimer: number | null = null;
-  private idleTimer: number | null = null;
 
   constructor() {
-    this.dmp = new DiffMatchPatch();
-    this.dmp.Diff_Timeout = 0.5;
     this.init();
   }
 
@@ -49,12 +38,6 @@ class GoogleDocsTracker {
 
       // Load persisted document state
       await this.loadPersistedState();
-
-      // Set up event listeners
-      this.setupEventListeners();
-
-      // Update initial activity state
-      this.updateActivityState();
 
       // Start polling timer
       this.startPolling();
@@ -112,44 +95,58 @@ class GoogleDocsTracker {
   /**
    * Save document state to persistent storage
    */
-  private async saveDocumentState(docId: string, text: string, hash: string): Promise<void> {
+  private async saveDocumentState(
+    docId: string,
+    text: string,
+    hash: string
+  ): Promise<void> {
     try {
       const key = `docState_${docId}`;
       const state = {
         lastText: text,
         lastHash: hash,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
-      
+
       await chrome.storage.local.set({ [key]: state });
-      console.log(`[docs-tracker] Saved document state for ${docId}, text length: ${text.length}`);
+      console.log(
+        `[docs-tracker] Saved document state for ${docId}, text length: ${text.length}`
+      );
     } catch (error) {
-      console.error('[docs-tracker] Failed to save document state:', error);
+      console.error("[docs-tracker] Failed to save document state:", error);
     }
   }
 
   /**
    * Load document state from persistent storage
    */
-  private async loadDocumentState(docId: string): Promise<{lastText: string, lastHash: string | null} | null> {
+  private async loadDocumentState(
+    docId: string
+  ): Promise<{ lastText: string; lastHash: string | null } | null> {
     try {
       const key = `docState_${docId}`;
       const result = await chrome.storage.local.get([key]);
-      
+
       if (result[key]) {
         const state = result[key];
-        console.log(`[docs-tracker] Loaded document state for ${docId}, text length: ${state.lastText?.length || 0}, timestamp: ${new Date(state.timestamp).toISOString()}`);
-        
+        console.log(
+          `[docs-tracker] Loaded document state for ${docId}, text length: ${
+            state.lastText?.length || 0
+          }, timestamp: ${new Date(state.timestamp).toISOString()}`
+        );
+
         return {
           lastText: state.lastText || "",
-          lastHash: state.lastHash || null
+          lastHash: state.lastHash || null,
         };
       }
-      
-      console.log(`[docs-tracker] No persisted state found for document ${docId}`);
+
+      console.log(
+        `[docs-tracker] No persisted state found for document ${docId}`
+      );
       return null;
     } catch (error) {
-      console.error('[docs-tracker] Failed to load document state:', error);
+      console.error("[docs-tracker] Failed to load document state:", error);
       return null;
     }
   }
@@ -161,31 +158,41 @@ class GoogleDocsTracker {
   private async clearOldDocumentStates(): Promise<void> {
     try {
       const result = await chrome.storage.local.get(null);
-      const docStates: Array<{key: string, timestamp: number}> = [];
-      
+      const docStates: Array<{ key: string; timestamp: number }> = [];
+
       // Find all document states
       for (const [key, value] of Object.entries(result)) {
-        if (key.startsWith('docState_') && value && typeof value === 'object' && 'timestamp' in value) {
+        if (
+          key.startsWith("docState_") &&
+          value &&
+          typeof value === "object" &&
+          "timestamp" in value
+        ) {
           docStates.push({
             key,
-            timestamp: (value as { timestamp: number }).timestamp || 0
+            timestamp: (value as { timestamp: number }).timestamp || 0,
           });
         }
       }
-      
+
       // Keep only the most recent 50 documents
       if (docStates.length > 50) {
         docStates.sort((a, b) => b.timestamp - a.timestamp);
-        const toRemove = docStates.slice(50).map(item => item.key);
-        
+        const toRemove = docStates.slice(50).map((item) => item.key);
+
         for (const key of toRemove) {
           await chrome.storage.local.remove(key);
         }
-        
-        console.log(`[docs-tracker] Cleaned up ${toRemove.length} old document states`);
+
+        console.log(
+          `[docs-tracker] Cleaned up ${toRemove.length} old document states`
+        );
       }
     } catch (error) {
-      console.error('[docs-tracker] Failed to clear old document states:', error);
+      console.error(
+        "[docs-tracker] Failed to clear old document states:",
+        error
+      );
     }
   }
 
@@ -194,73 +201,27 @@ class GoogleDocsTracker {
    */
   private async loadPersistedState(): Promise<void> {
     const persistedState = await this.loadDocumentState(this.docId);
-    
+
     if (persistedState) {
       this.state.lastText = persistedState.lastText;
       this.state.lastHash = persistedState.lastHash;
       this.state.hasInitialFetch = true; // We have previous state, so not truly "initial"
-      
-      console.log(`[docs-tracker] Restored document state from storage - text length: ${persistedState.lastText.length}, hash: ${persistedState.lastHash?.substring(0, 8)}...`);
+
+      console.log(
+        `[docs-tracker] Restored document state from storage - text length: ${
+          persistedState.lastText.length
+        }, hash: ${persistedState.lastHash?.substring(0, 8)}...`
+      );
     } else {
-      console.log(`[docs-tracker] No previous state found for document, starting fresh`);
+      console.log(
+        `[docs-tracker] No previous state found for document, starting fresh`
+      );
     }
-    
+
     // Periodically clean up old document states (every 10th initialization)
     if (Math.random() < 0.1) {
       this.clearOldDocumentStates();
     }
-  }
-
-  private setupEventListeners(): void {
-    // Visibility and focus listeners
-    document.addEventListener("visibilitychange", () =>
-      this.updateActivityState()
-    );
-    window.addEventListener("focus", () => this.updateActivityState());
-    window.addEventListener("blur", () => this.updateActivityState());
-
-    // Typing activity listener
-    document.addEventListener("keydown", () => this.onTyping());
-  }
-
-  private updateActivityState(): void {
-    const wasActive = this.state.active;
-    this.state.active =
-      document.visibilityState === "visible" &&
-      document.hasFocus() &&
-      this.state.typedRecently;
-
-    if (this.state.active !== wasActive) {
-      const reason = this.state.active
-        ? "document visible, focused, and recently typed"
-        : `document ${
-            document.visibilityState === "visible" ? "visible" : "hidden"
-          }, ${document.hasFocus() ? "focused" : "unfocused"}, ${
-            this.state.typedRecently ? "recently typed" : "no recent typing"
-          }`;
-
-      console.log(
-        `[docs-tracker] Ongoing polling activity changed: ${this.state.active} (${reason})`
-      );
-    }
-  }
-
-  private onTyping(): void {
-    console.log("[docs-tracker] Typing event detected");
-
-    this.state.typedRecently = true;
-    this.updateActivityState();
-
-    // Reset idle timer
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-    }
-
-    this.idleTimer = window.setTimeout(() => {
-      console.log("[docs-tracker] Idle timeout reached, pausing polling");
-      this.state.typedRecently = false;
-      this.updateActivityState();
-    }, IDLE_TIMEOUT_MS);
   }
 
   private startPolling(): void {
@@ -400,13 +361,17 @@ class GoogleDocsTracker {
 
     // Check if document hasn't changed at all (including from persisted state)
     if (this.state.lastText === text && this.state.lastHash === newHash) {
-      console.log("[docs-tracker] Document unchanged since last check, skipping");
+      console.log(
+        "[docs-tracker] Document unchanged since last check, skipping"
+      );
       return;
     }
 
     // Handle first fetch (no previous state)
     if (this.state.lastText === "" && this.state.lastHash === null) {
-      console.log("[docs-tracker] First fetch - sending full document as insert");
+      console.log(
+        "[docs-tracker] First fetch - sending full document as insert"
+      );
       const ops: DiffOp[] = text.length > 0 ? [{ t: "ins", pos: 0, text }] : [];
       await this.sendDiffEvent(ops, null, newHash);
       this.state.lastText = text;
@@ -419,7 +384,9 @@ class GoogleDocsTracker {
     // This can happen if document was edited while page was closed
     if (this.state.lastText === text) {
       if (this.state.lastHash !== newHash) {
-        console.log("[docs-tracker] Text identical but hash changed - updating hash only");
+        console.log(
+          "[docs-tracker] Text identical but hash changed - updating hash only"
+        );
         this.state.lastHash = newHash;
         await this.saveDocumentState(this.docId, text, newHash);
       } else {
@@ -429,12 +396,16 @@ class GoogleDocsTracker {
     }
 
     // Generate diff for actual changes
-    console.log(`[docs-tracker] Document changed - generating diff (old: ${this.state.lastText.length} chars, new: ${text.length} chars)`);
-    const diffs = this.dmp.diff_main(this.state.lastText, text);
+    console.log(
+      `[docs-tracker] Document changed - generating diff (old: ${this.state.lastText.length} chars, new: ${text.length} chars)`
+    );
+    const diffs = diffChars(this.state.lastText, text);
     const ops = this.convertDiffsToOps(diffs);
 
     if (ops.length === 0) {
-      console.log("[docs-tracker] No diff operations generated, updating state only");
+      console.log(
+        "[docs-tracker] No diff operations generated, updating state only"
+      );
       this.state.lastText = text;
       this.state.lastHash = newHash;
       await this.saveDocumentState(this.docId, text, newHash);
@@ -449,26 +420,22 @@ class GoogleDocsTracker {
     await this.saveDocumentState(this.docId, text, newHash);
   }
 
-  private convertDiffsToOps(diffs: Array<[number, string]>): DiffOp[] {
+  private convertDiffsToOps(diffs: Change[]): DiffOp[] {
     const ops: DiffOp[] = [];
     let cursor = 0;
 
-    for (const [operation, data] of diffs) {
-      switch (operation) {
-        case DIFF_DELETE:
-          if (data.length > 0) {
-            ops.push({ t: "del", pos: cursor, len: data.length });
-            cursor += data.length;
-          }
-          break;
-        case DIFF_INSERT:
-          if (data.length > 0) {
-            ops.push({ t: "ins", pos: cursor, text: data });
-          }
-          break;
-        case DIFF_EQUAL:
-          cursor += data.length;
-          break;
+    for (const change of diffs) {
+      if (change.removed && change.value.length > 0) {
+        // Delete operation
+        ops.push({ t: "del", pos: cursor, len: change.value.length });
+        cursor += change.value.length;
+      } else if (change.added && change.value.length > 0) {
+        // Insert operation
+        ops.push({ t: "ins", pos: cursor, text: change.value });
+        // Don't advance cursor for inserts
+      } else if (!change.added && !change.removed) {
+        // Equal/unchanged text
+        cursor += change.value.length;
       }
     }
 

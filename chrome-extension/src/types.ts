@@ -34,7 +34,6 @@ export type ExtensionState = {
   lastHash: string | null;
   installId: string;
   active: boolean;
-  typedRecently: boolean;
   hasInitialFetch: boolean;
 };
 
