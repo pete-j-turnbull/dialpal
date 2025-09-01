@@ -1,9 +1,20 @@
-import { DiffOp } from "@convex/schema/document";
+import { type DiffOp } from "@convex/schema/document";
 
-export type ExtensionState = {
-  oldText?: string;
-  oldHash?: string;
-  newText?: string;
-  newHash?: string;
-  ops: DiffOp[];
-};
+export interface DocumentState {
+  // Current state of the document
+  currentText?: string;
+  currentHash?: string;
+
+  // Last successfully synced state
+  lastSyncedText?: string;
+  lastSyncedHash?: string;
+
+  // Pending operations not yet synced
+  pendingOps: DiffOp[];
+
+  // Sync status
+  syncInProgress: boolean;
+  lastSyncAttempt?: number;
+  lastSyncSuccess?: number;
+  retryTimer?: number;
+}

@@ -1,37 +1,27 @@
-import { diffChars, Change } from "diff";
+import { diffChars } from "diff";
 import { sha256 } from "./lib/hash";
-import { backoffManager } from "./lib/backoff";
 import { ConvexClient } from "convex/browser";
-import { ExtensionState } from "./types";
+import { type DocumentState } from "./types";
 import { config } from "./config";
 import { api } from "@convex/_generated/api";
 import { DocumentPlatforms } from "@convex/schema/document";
+import { type DiffOp } from "@convex/schema/document";
 
 const convex = new ConvexClient(config.convexCloudUrl);
 
-// platform: documentPlatformSchema,
-//     externalId: v.string(),
-//     title: v.optional(v.string()),
-//     oldHash: v.optional(v.string()),
-//     newHash: v.string(),
-//     ts: v.number(),
-//     ops: v.array(diffOpSchema),
-
-// Hard-coded constants
-const MAX_DOC_SIZE = 2_000_000;
-const SAMPLE_INTERVAL_MS = 10_000;
+// Constants
+const POLL_INTERVAL_MS = 10_000; // Check for changes every 10 seconds
+const RETRY_DELAY_MS = 30_000; // Retry failed syncs after 30 seconds
+const MAX_DOC_SIZE = 2_000_000; // 2MB max document size
 
 class GoogleDocsTracker {
-  private state: ExtensionState = {
-    lastText: "",
-    lastHash: null,
-    installId: "",
-    active: false,
-    hasInitialFetch: false,
-  };
-
   private docId: string = "";
   private pollTimer: number | null = null;
+
+  private state: DocumentState = {
+    pendingOps: [],
+    syncInProgress: false,
+  };
 
   constructor() {
     this.init();
@@ -46,25 +36,16 @@ class GoogleDocsTracker {
         return;
       }
 
-      // Initialize install ID
-      await this.initInstallId();
+      console.log(`[docs-tracker] Initialized for doc: ${this.docId}`);
 
-      // Load persisted document state
+      // Load persisted state
       await this.loadPersistedState();
 
-      // Start polling timer
+      // Start polling for document changes
       this.startPolling();
 
-      console.log(`[docs-tracker] Initialized for doc: ${this.docId}`);
-      console.log(
-        `[docs-tracker] Initial state - visible: ${
-          document.visibilityState === "visible"
-        }, focused: ${document.hasFocus()}, will attempt initial fetch: ${
-          !this.state.hasInitialFetch &&
-          document.visibilityState === "visible" &&
-          document.hasFocus()
-        }`
-      );
+      // Do initial fetch
+      this.checkForChanges();
     } catch (error) {
       console.error("[docs-tracker] Initialization failed:", error);
     }
@@ -82,93 +63,90 @@ class GoogleDocsTracker {
     return "";
   }
 
-  private async initInstallId(): Promise<void> {
-    const result = await chrome.storage.local.get(["installId"]);
-
-    if (result.installId) {
-      this.state.installId = result.installId;
-    } else {
-      // Generate UUID v4
-      this.state.installId = this.generateUUID();
-      await chrome.storage.local.set({ installId: this.state.installId });
-      console.log(
-        `[docs-tracker] Generated install ID: ${this.state.installId}`
-      );
-    }
-  }
-
-  private generateUUID(): string {
-    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      const v = c === "x" ? r : (r & 0x3) | 0x8;
-      return v.toString(16);
-    });
-  }
-
   /**
-   * Save document state to persistent storage
+   * Load persisted state from Chrome storage
    */
-  private async saveDocumentState(
-    docId: string,
-    text: string,
-    hash: string
-  ): Promise<void> {
+  private async loadPersistedState(): Promise<void> {
     try {
-      const key = `docState_${docId}`;
-      const state = {
-        lastText: text,
-        lastHash: hash,
-        timestamp: Date.now(),
-      };
-
-      await chrome.storage.local.set({ [key]: state });
-      console.log(
-        `[docs-tracker] Saved document state for ${docId}, text length: ${text.length}`
-      );
-    } catch (error) {
-      console.error("[docs-tracker] Failed to save document state:", error);
-    }
-  }
-
-  /**
-   * Load document state from persistent storage
-   */
-  private async loadDocumentState(
-    docId: string
-  ): Promise<{ lastText: string; lastHash: string | null } | null> {
-    try {
-      const key = `docState_${docId}`;
+      const key = `docState_${this.docId}`;
       const result = await chrome.storage.local.get([key]);
 
       if (result[key]) {
-        const state = result[key];
+        const savedState = result[key];
         console.log(
-          `[docs-tracker] Loaded document state for ${docId}, text length: ${
-            state.lastText?.length || 0
-          }, timestamp: ${new Date(state.timestamp).toISOString()}`
+          `[docs-tracker] Loaded persisted state - currentHash: ${savedState.currentHash?.substring(
+            0,
+            8
+          )}..., lastSyncedHash: ${savedState.lastSyncedHash?.substring(
+            0,
+            8
+          )}..., pendingOps: ${savedState.pendingOps?.length || 0}`
         );
 
-        return {
-          lastText: state.lastText || "",
-          lastHash: state.lastHash || null,
-        };
+        // Restore current state
+        this.state.currentText = savedState.currentText || "";
+        this.state.currentHash = savedState.currentHash || null;
+
+        // Restore synced state
+        this.state.lastSyncedText = savedState.lastSyncedText || "";
+        this.state.lastSyncedHash = savedState.lastSyncedHash || null;
+
+        // Restore pending operations
+        this.state.pendingOps = savedState.pendingOps || [];
+
+        if (this.state.pendingOps.length > 0) {
+          console.log(
+            `[docs-tracker] Found ${this.state.pendingOps.length} pending operations from previous session`
+          );
+        }
+      } else {
+        console.log("[docs-tracker] No persisted state found, starting fresh");
       }
 
-      console.log(
-        `[docs-tracker] No persisted state found for document ${docId}`
-      );
-      return null;
+      // Periodically clean up old document states (10% chance)
+      if (Math.random() < 0.1) {
+        this.cleanupOldStates();
+      }
     } catch (error) {
-      console.error("[docs-tracker] Failed to load document state:", error);
-      return null;
+      console.error("[docs-tracker] Failed to load persisted state:", error);
     }
   }
 
   /**
-   * Clear old document states to manage storage quota
+   * Save state to Chrome storage
+   */
+  private async saveState(): Promise<void> {
+    try {
+      const key = `docState_${this.docId}`;
+      const stateToSave = {
+        currentText: this.state.currentText,
+        currentHash: this.state.currentHash,
+        lastSyncedText: this.state.lastSyncedText,
+        lastSyncedHash: this.state.lastSyncedHash,
+        pendingOps: this.state.pendingOps,
+        timestamp: Date.now(),
+      };
+
+      await chrome.storage.local.set({ [key]: stateToSave });
+      console.log(
+        `[docs-tracker] Saved state - currentHash: ${this.state.currentHash?.substring(
+          0,
+          8
+        )}..., lastSyncedHash: ${this.state.lastSyncedHash?.substring(
+          0,
+          8
+        )}..., pendingOps: ${this.state.pendingOps.length}`
+      );
+    } catch (error) {
+      console.error("[docs-tracker] Failed to save state:", error);
+    }
+  }
+
+  /**
+   * Clean up old document states to manage storage quota
    * Keeps only the most recent 50 documents
    */
-  private async clearOldDocumentStates(): Promise<void> {
+  private async cleanupOldStates(): Promise<void> {
     try {
       const result = await chrome.storage.local.get(null);
       const docStates: Array<{ key: string; timestamp: number }> = [];
@@ -202,38 +180,7 @@ class GoogleDocsTracker {
         );
       }
     } catch (error) {
-      console.error(
-        "[docs-tracker] Failed to clear old document states:",
-        error
-      );
-    }
-  }
-
-  /**
-   * Load persisted state for the current document during initialization
-   */
-  private async loadPersistedState(): Promise<void> {
-    const persistedState = await this.loadDocumentState(this.docId);
-
-    if (persistedState) {
-      this.state.lastText = persistedState.lastText;
-      this.state.lastHash = persistedState.lastHash;
-      this.state.hasInitialFetch = true; // We have previous state, so not truly "initial"
-
-      console.log(
-        `[docs-tracker] Restored document state from storage - text length: ${
-          persistedState.lastText.length
-        }, hash: ${persistedState.lastHash?.substring(0, 8)}...`
-      );
-    } else {
-      console.log(
-        `[docs-tracker] No previous state found for document, starting fresh`
-      );
-    }
-
-    // Periodically clean up old document states (every 10th initialization)
-    if (Math.random() < 0.1) {
-      this.clearOldDocumentStates();
+      console.error("[docs-tracker] Failed to clean up old states:", error);
     }
   }
 
@@ -243,69 +190,76 @@ class GoogleDocsTracker {
     }
 
     this.pollTimer = window.setInterval(() => {
-      this.tick().catch((error) => {
-        console.error("[docs-tracker] Polling tick error:", error);
-      });
-    }, SAMPLE_INTERVAL_MS);
-
-    // Initial tick
-    this.tick().catch((error) => {
-      console.error("[docs-tracker] Initial tick error:", error);
-    });
+      this.checkForChanges();
+    }, POLL_INTERVAL_MS);
   }
 
-  private async tick(): Promise<void> {
-    // Allow initial fetch even without typing activity, but require visibility and focus
-    const canFetchInitial =
-      !this.state.hasInitialFetch &&
-      document.visibilityState === "visible" &&
-      document.hasFocus();
-
-    const canFetchOngoing = this.state.active;
-
-    if (!canFetchInitial && !canFetchOngoing) {
-      if (!this.state.hasInitialFetch) {
-        console.log(
-          "[docs-tracker] Skipping initial fetch - document not visible/focused"
-        );
-      } else {
-        console.log("[docs-tracker] Skipping tick due to inactivity");
-      }
-      return;
-    }
-
-    // Check if we're in backoff for export
-    if (backoffManager.isInBackoff("export")) {
-      console.log("[docs-tracker] Skipping tick due to backoff");
-      return;
-    }
-
+  private async checkForChanges(): Promise<void> {
     try {
-      await backoffManager.withBackoff("export", async () => {
-        const text = await this.fetchDocumentText();
+      // Fetch current document text
+      const text = await this.fetchDocumentText();
 
-        if (!this.state.hasInitialFetch) {
+      // Check if document is too large
+      if (text.length > MAX_DOC_SIZE) {
+        console.log(
+          `[docs-tracker] Document too large (${text.length} chars), skipping`
+        );
+        return;
+      }
+
+      // Calculate hash of current text
+      const hash = await sha256(text);
+
+      // Check if document has changed
+      if (hash === this.state.currentHash) {
+        console.log("[docs-tracker] No changes detected");
+        return;
+      }
+
+      console.log(
+        `[docs-tracker] Document changed - old: ${this.state.currentText?.length} chars, new: ${text.length} chars`
+      );
+
+      // Update current state
+      const previousText = this.state.currentText;
+      this.state.currentText = text;
+      this.state.currentHash = hash;
+
+      // Save the updated current state even if no new ops are generated
+      // This ensures we track the latest document state
+      await this.saveState();
+
+      // Generate diff operations if we have a previous state
+      if (previousText) {
+        const newOps = this.generateDiffOps(previousText, text);
+        if (newOps.length > 0) {
+          // Add new ops to pending queue
+          this.state.pendingOps = [...this.state.pendingOps, ...newOps];
           console.log(
-            `[docs-tracker] Initial fetch completed, document length: ${text.length} chars`
-          );
-          this.state.hasInitialFetch = true;
-        } else {
-          console.log(
-            `[docs-tracker] Ongoing fetch completed, document length: ${text.length} chars`
+            `[docs-tracker] Generated ${newOps.length} new ops, total pending: ${this.state.pendingOps.length}`
           );
         }
+      } else {
+        // First fetch - treat entire document as an insert
+        if (text.length > 0) {
+          this.state.pendingOps = [{ t: "ins", pos: 0, text }];
+          console.log(
+            "[docs-tracker] Initial document fetch - treating as full insert"
+          );
+        }
+      }
 
-        await this.processTextUpdate(text);
-      });
+      // Try to sync if we have pending operations
+      if (this.state.pendingOps.length > 0 && !this.state.syncInProgress) {
+        await this.syncToConvex();
+      }
     } catch (error) {
-      console.error("[docs-tracker] Tick failed:", error);
+      console.error("[docs-tracker] Error checking for changes:", error);
     }
   }
 
   private async fetchDocumentText(): Promise<string> {
-    console.log(
-      `[docs-tracker] Requesting document text via background script for doc: ${this.docId}`
-    );
+    console.log(`[docs-tracker] Fetching document text for doc: ${this.docId}`);
 
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(
@@ -333,31 +287,10 @@ class GoogleDocsTracker {
           }
 
           if (response.success && response.text !== undefined) {
-            const text = response.text;
             console.log(
-              `[docs-tracker] Received document text from background, length: ${text.length} chars`
+              `[docs-tracker] Received document text, length: ${response.text.length} chars`
             );
-
-            // Check for very large documents
-            if (text.length > MAX_DOC_SIZE) {
-              console.log(
-                `[docs-tracker] Document too large (${text.length} chars), sending heartbeat`
-              );
-              this.sendHeartbeat().catch((error) =>
-                console.error("[docs-tracker] Failed to send heartbeat:", error)
-              );
-
-              // Pause polling for 5 minutes
-              if (this.pollTimer) {
-                clearInterval(this.pollTimer);
-                setTimeout(() => this.startPolling(), 5 * 60 * 1000);
-              }
-
-              reject(new Error("Document too large"));
-              return;
-            }
-
-            resolve(text);
+            resolve(response.text);
           } else {
             const errorMsg =
               response.error || "Unknown error from background script";
@@ -369,71 +302,8 @@ class GoogleDocsTracker {
     });
   }
 
-  private async processTextUpdate(text: string): Promise<void> {
-    const newHash = await sha256(text);
-
-    // Check if document hasn't changed at all (including from persisted state)
-    if (this.state.lastText === text && this.state.lastHash === newHash) {
-      console.log(
-        "[docs-tracker] Document unchanged since last check, skipping"
-      );
-      return;
-    }
-
-    // Handle first fetch (no previous state)
-    if (this.state.lastText === "" && this.state.lastHash === null) {
-      console.log(
-        "[docs-tracker] First fetch - sending full document as insert"
-      );
-      const ops: DiffOp[] = text.length > 0 ? [{ t: "ins", pos: 0, text }] : [];
-      await this.sendDiffEvent(ops, null, newHash);
-      this.state.lastText = text;
-      this.state.lastHash = newHash;
-      await this.saveDocumentState(this.docId, text, newHash);
-      return;
-    }
-
-    // Handle case where text is identical but hash might be different
-    // This can happen if document was edited while page was closed
-    if (this.state.lastText === text) {
-      if (this.state.lastHash !== newHash) {
-        console.log(
-          "[docs-tracker] Text identical but hash changed - updating hash only"
-        );
-        this.state.lastHash = newHash;
-        await this.saveDocumentState(this.docId, text, newHash);
-      } else {
-        console.log("[docs-tracker] No changes detected");
-      }
-      return;
-    }
-
-    // Generate diff for actual changes
-    console.log(
-      `[docs-tracker] Document changed - generating diff (old: ${this.state.lastText.length} chars, new: ${text.length} chars)`
-    );
-    const diffs = diffChars(this.state.lastText, text);
-    const ops = this.convertDiffsToOps(diffs);
-
-    if (ops.length === 0) {
-      console.log(
-        "[docs-tracker] No diff operations generated, updating state only"
-      );
-      this.state.lastText = text;
-      this.state.lastHash = newHash;
-      await this.saveDocumentState(this.docId, text, newHash);
-      return;
-    }
-
-    // Send diff event
-    console.log(`[docs-tracker] Sending ${ops.length} diff operations`);
-    await this.sendDiffEvent(ops, this.state.lastHash, newHash);
-    this.state.lastText = text;
-    this.state.lastHash = newHash;
-    await this.saveDocumentState(this.docId, text, newHash);
-  }
-
-  private convertDiffsToOps(diffs: Change[]): DiffOp[] {
+  private generateDiffOps(oldText: string, newText: string): DiffOp[] {
+    const diffs = diffChars(oldText, newText);
     const ops: DiffOp[] = [];
     let cursor = 0;
 
@@ -441,18 +311,17 @@ class GoogleDocsTracker {
       if (change.removed && change.value.length > 0) {
         // Delete operation
         ops.push({ t: "del", pos: cursor, len: change.value.length });
-        cursor += change.value.length;
+        // Don't advance cursor for deletes in the new text
       } else if (change.added && change.value.length > 0) {
         // Insert operation
         ops.push({ t: "ins", pos: cursor, text: change.value });
-        // Don't advance cursor for inserts
+        cursor += change.value.length;
       } else if (!change.added && !change.removed) {
-        // Equal/unchanged text
+        // Unchanged text - advance cursor
         cursor += change.value.length;
       }
     }
 
-    // Coalesce adjacent operations
     return this.coalesceOps(ops);
   }
 
@@ -466,17 +335,17 @@ class GoogleDocsTracker {
       const next = ops[i];
 
       // Try to coalesce adjacent deletes
-      if (
-        current.t === "del" &&
-        next.t === "del" &&
-        current.pos + current.len === next.pos
-      ) {
+      if (current.t === "del" && next.t === "del" && current.pos === next.pos) {
         current = { t: "del", pos: current.pos, len: current.len + next.len };
         continue;
       }
 
       // Try to coalesce adjacent inserts at same position
-      if (current.t === "ins" && next.t === "ins" && current.pos === next.pos) {
+      if (
+        current.t === "ins" &&
+        next.t === "ins" &&
+        current.pos + current.text.length === next.pos
+      ) {
         current = {
           t: "ins",
           pos: current.pos,
@@ -494,89 +363,61 @@ class GoogleDocsTracker {
     return coalesced;
   }
 
-  private async sendDiffEvent(
-    ops: DiffOp[],
-    oldHash: string | null,
-    newHash: string
-  ): Promise<void> {
-    const payload: DiffEvent = {
-      ts: new Date().toISOString(),
-      docId: this.docId,
-      oldHash,
-      newHash,
-      ops,
-      meta: {
+  // TODO: check if current hash exists
+  private async syncToConvex(): Promise<void> {
+    // Clear any existing retry timer
+    if (this.state.retryTimer) {
+      clearTimeout(this.state.retryTimer);
+      this.state.retryTimer = undefined;
+    }
+
+    // Mark sync as in progress
+    this.state.syncInProgress = true;
+    this.state.lastSyncAttempt = Date.now();
+
+    try {
+      console.log(
+        `[docs-tracker] Syncing ${this.state.pendingOps.length} operations to Convex`
+      );
+
+      // Call the sync mutation
+      await convex.mutation(api.modules.document.protected.sync, {
+        ts: Date.now(),
+        externalId: this.docId,
+        platform: DocumentPlatforms.GoogleDocs,
+        oldHash: this.state.lastSyncedHash,
+        newHash: this.state.currentHash!,
+        ops: this.state.pendingOps,
         title: this.extractTitle(),
-        userLocale: navigator.language,
-      },
-    };
-
-    // Check if we're in backoff for posting
-    if (backoffManager.isInBackoff("post")) {
-      console.log("[docs-tracker] Skipping send due to backoff");
-      return;
-    }
-
-    try {
-      await backoffManager.withBackoff("post", async () => {
-        await convex.mutation(api.modules.document.protected.sync, {
-          ts: Date.now(),
-          externalId: this.docId,
-          platform: DocumentPlatforms.GoogleDocs,
-          oldHash: oldHash || undefined,
-          newHash: newHash,
-          ops,
-          title: this.extractTitle(),
-        });
-        console.log(payloadStr);
-
-        // TODO: To be implemented at a later date (not by CLAUDE)
-        // const response = await fetch(API_URL, {
-        //   method: "POST",
-        //   headers: {
-        //     "Content-Type": "application/json",
-        //   },
-        //   body: payloadStr,
-        //   keepalive: true,
-        // });
-
-        // if (!response.ok) {
-        //   throw new Error(`Post failed: ${response.status}`);
-        // }
-
-        console.log(
-          `[docs-tracker] Sent ${ops.length} ops for doc ${this.docId}`
-        );
       });
+
+      console.log(
+        `[docs-tracker] Successfully synced ${this.state.pendingOps.length} operations`
+      );
+
+      // Update synced state
+      this.state.lastSyncedText = this.state.currentText;
+      this.state.lastSyncedHash = this.state.currentHash;
+      this.state.pendingOps = [];
+      this.state.lastSyncSuccess = Date.now();
+      this.state.syncInProgress = false;
+
+      // Save state after successful sync
+      await this.saveState();
     } catch (error) {
-      console.error("[docs-tracker] Failed to send diff event:", error);
-    }
-  }
+      console.error("[docs-tracker] Sync failed:", error);
+      this.state.syncInProgress = false;
 
-  private async sendHeartbeat(): Promise<void> {
-    const payload = {
-      ts: new Date().toISOString(),
-      docId: this.docId,
-      docUrl: location.href,
-      installId: this.state.installId,
-      source: "chrome-ext@v1",
-      tooLarge: true,
-    };
-
-    try {
-      // TODO: To be implemented at a later date (not by CLAUDE)
-      // await fetch(API_URL, {
-      //   method: "POST",
-      //   headers: {
-      //     "Content-Type": "application/json",
-      //   },
-      //   body: JSON.stringify(payload),
-      //   keepalive: true,
-      // });
-
-      console.log("[docs-tracker] Sent heartbeat for oversized doc");
-    } catch (error) {
-      console.error("[docs-tracker] Failed to send heartbeat:", error);
+      // Schedule retry
+      console.log(
+        `[docs-tracker] Scheduling retry in ${RETRY_DELAY_MS / 1000} seconds`
+      );
+      this.state.retryTimer = window.setTimeout(() => {
+        this.state.retryTimer = undefined;
+        if (this.state.pendingOps.length > 0 && !this.state.syncInProgress) {
+          this.syncToConvex();
+        }
+      }, RETRY_DELAY_MS);
     }
   }
 
@@ -584,13 +425,45 @@ class GoogleDocsTracker {
     const title = document.title;
     return title.replace(/ - Google Docs$/, "").trim();
   }
+
+  // Clean up on page unload
+  public async destroy(): Promise<void> {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+
+    if (this.state.retryTimer) {
+      clearTimeout(this.state.retryTimer);
+      this.state.retryTimer = undefined;
+    }
+
+    // Save current state before unloading
+    if (this.state.pendingOps.length > 0) {
+      console.log(
+        `[docs-tracker] Saving ${this.state.pendingOps.length} pending ops before unload`
+      );
+      await this.saveState();
+    }
+  }
 }
 
 // Initialize tracker when content script loads
+let tracker: GoogleDocsTracker | null = null;
+
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
-    new GoogleDocsTracker();
+    tracker = new GoogleDocsTracker();
   });
 } else {
-  new GoogleDocsTracker();
+  tracker = new GoogleDocsTracker();
 }
+
+// Clean up on page unload
+window.addEventListener("beforeunload", (e) => {
+  if (tracker) {
+    // Note: beforeunload doesn't wait for async operations,
+    // but Chrome will usually give us enough time to save to storage
+    tracker.destroy().catch(console.error);
+  }
+});
