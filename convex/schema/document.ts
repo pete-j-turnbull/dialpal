@@ -1,9 +1,9 @@
 import { defineTable } from "convex/server";
-import { v } from "convex/values";
+import { Infer, v } from "convex/values";
 import { Doc, Id } from "@convex/_generated/dataModel";
 
 export const DocumentPlatforms = {
-  GOOGLE_DOCS: "google_docs",
+  GoogleDocs: "google_docs",
 } as const;
 
 export const OpType = {
@@ -11,9 +11,28 @@ export const OpType = {
   DELETE: "del",
 } as const;
 
-export const documentPlatformSchema = v.union(
-  v.literal(DocumentPlatforms.GOOGLE_DOCS)
+export type OpType = (typeof OpType)[keyof typeof OpType];
+
+export const diffOpSchema = v.union(
+  v.object({
+    t: v.literal(OpType.INSERT),
+    pos: v.number(),
+    text: v.string(),
+  }),
+  v.object({
+    t: v.literal(OpType.DELETE),
+    pos: v.number(),
+    len: v.number(),
+  })
 );
+
+export type DiffOp = Infer<typeof diffOpSchema>;
+
+export const documentPlatformSchema = v.union(
+  v.literal(DocumentPlatforms.GoogleDocs)
+);
+
+export type DocumentPlatform = Infer<typeof documentPlatformSchema>;
 
 // Schema for documents being tracked
 export const documentSchema = v.object({
@@ -22,8 +41,9 @@ export const documentSchema = v.object({
   platform: documentPlatformSchema,
   externalId: v.string(),
 
-  title: v.string(),
-  currentHash: v.optional(v.string()),
+  title: v.optional(v.string()),
+  currentHash: v.string(),
+  version: v.number(),
 
   firstSeenAt: v.number(), // When we first saw this document
   lastSyncedAt: v.number(), // Last time we received a sync
@@ -34,6 +54,7 @@ export const documentChangeSchema = v.object({
 
   // Timestamp when the change occurred
   timestamp: v.number(),
+  version: v.number(),
 
   // Hash values for change validation
   oldHash: v.optional(v.string()),
@@ -64,11 +85,16 @@ export type DocumentId = Id<"documents">;
 export type DocumentChange = Doc<"document_changes">;
 export type DocumentChangeId = Id<"document_changes">;
 
-export const documentsTable = defineTable(documentSchema).index("by_user", [
-  "userId",
-]);
+export const documentsTable = defineTable(documentSchema)
+  .index("by_user", ["userId"])
+  .index("by_user_and_external_id", ["userId", "externalId"])
+  .index("by_user_and_platform_and_external_id", [
+    "userId",
+    "platform",
+    "externalId",
+  ]);
 
-export const documentChangesTable = defineTable(documentChangeSchema).index(
-  "by_document",
-  ["documentId"]
-);
+export const documentChangesTable = defineTable(documentChangeSchema)
+  .index("by_document", ["documentId"])
+  .index("by_document_and_version", ["documentId", "version"])
+  .index("by_document_and_newHash", ["documentId", "newHash"]);
