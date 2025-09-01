@@ -1,6 +1,6 @@
 import { type DiffOp } from "@convex/schema/document";
 
-export interface DocumentState {
+export type DocumentState = {
   // Current state of the document
   currentText?: string;
   currentHash?: string;
@@ -17,4 +17,4 @@ export interface DocumentState {
   lastSyncAttempt?: number;
   lastSyncSuccess?: number;
   retryTimer?: number;
-}
+};

@@ -363,8 +363,11 @@ class GoogleDocsTracker {
     return coalesced;
   }
 
-  // TODO: check if current hash exists
   private async syncToConvex(): Promise<void> {
+    if (this.state.currentHash === undefined) {
+      throw new Error("Current hash cannot be undefined");
+    }
+
     // Clear any existing retry timer
     if (this.state.retryTimer) {
       clearTimeout(this.state.retryTimer);
@@ -386,7 +389,7 @@ class GoogleDocsTracker {
         externalId: this.docId,
         platform: DocumentPlatforms.GoogleDocs,
         oldHash: this.state.lastSyncedHash,
-        newHash: this.state.currentHash!,
+        newHash: this.state.currentHash,
         ops: this.state.pendingOps,
         title: this.extractTitle(),
       });
