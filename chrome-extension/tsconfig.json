@@ -10,18 +10,17 @@
     "forceConsistentCasingInFileNames": true,
     "moduleResolution": "node",
     "outDir": "./dist",
-    "rootDir": "./src",
     "sourceMap": true,
     "declaration": false,
     "removeComments": false,
     "resolveJsonModule": true,
-    "types": ["chrome"]
+    "types": ["chrome"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@convex/*": ["../convex/*"],
+      "@packages/*": ["../packages/*"]
+    }
   },
-  "include": [
-    "src/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "../convex/**/*"]
 }

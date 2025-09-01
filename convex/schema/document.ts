@@ -61,22 +61,7 @@ export const documentChangeSchema = v.object({
   newHash: v.string(),
 
   // The diff operations
-  operations: v.array(
-    v.union(
-      // Insert operation
-      v.object({
-        t: v.literal(OpType.INSERT),
-        pos: v.number(),
-        text: v.string(),
-      }),
-      // Delete operation
-      v.object({
-        t: v.literal(OpType.DELETE),
-        pos: v.number(),
-        len: v.number(),
-      })
-    )
-  ),
+  operations: v.array(diffOpSchema),
 });
 
 export type Document = Doc<"documents">;

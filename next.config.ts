@@ -8,14 +8,6 @@ const nextConfig: NextConfig = withAxiom({
         source: "/storybook/",
         destination: "/storybook/index.html",
       },
-      {
-        source: "/personal",
-        destination: "/orgs/personal",
-      },
-      {
-        source: "/personal/:path*",
-        destination: "/orgs/personal/:path*",
-      },
     ];
   },
   outputFileTracingIncludes: {

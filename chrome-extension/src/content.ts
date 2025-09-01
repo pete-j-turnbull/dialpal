@@ -1,12 +1,25 @@
 import { diffChars, Change } from "diff";
 import { sha256 } from "./lib/hash";
 import { backoffManager } from "./lib/backoff";
-import { DiffEvent, DiffOp, ExtensionState } from "./types";
+import { ConvexClient } from "convex/browser";
+import { ExtensionState } from "./types";
+import { config } from "./config";
+import { api } from "@convex/_generated/api";
+import { DocumentPlatforms } from "@convex/schema/document";
+
+const convex = new ConvexClient(config.convexCloudUrl);
+
+// platform: documentPlatformSchema,
+//     externalId: v.string(),
+//     title: v.optional(v.string()),
+//     oldHash: v.optional(v.string()),
+//     newHash: v.string(),
+//     ts: v.number(),
+//     ops: v.array(diffOpSchema),
 
 // Hard-coded constants
-const API_URL = "https://your.ingest.endpoint/v1/diffs"; // TODO: replace
 const MAX_DOC_SIZE = 2_000_000;
-const SAMPLE_INTERVAL_MS = 30_000;
+const SAMPLE_INTERVAL_MS = 10_000;
 
 class GoogleDocsTracker {
   private state: ExtensionState = {
@@ -489,10 +502,6 @@ class GoogleDocsTracker {
     const payload: DiffEvent = {
       ts: new Date().toISOString(),
       docId: this.docId,
-      docUrl: location.href,
-      installId: this.state.installId,
-      sampleMs: 30000,
-      source: "chrome-ext@v1",
       oldHash,
       newHash,
       ops,
@@ -502,15 +511,6 @@ class GoogleDocsTracker {
       },
     };
 
-    // Check payload size and compress if needed
-    const payloadStr = JSON.stringify(payload);
-    if (payloadStr.length > 200 * 1024) {
-      // TODO: Implement gzip compression if needed
-      console.warn(
-        "[docs-tracker] Large payload detected, compression not yet implemented"
-      );
-    }
-
     // Check if we're in backoff for posting
     if (backoffManager.isInBackoff("post")) {
       console.log("[docs-tracker] Skipping send due to backoff");
@@ -519,6 +519,15 @@ class GoogleDocsTracker {
 
     try {
       await backoffManager.withBackoff("post", async () => {
+        await convex.mutation(api.modules.document.protected.sync, {
+          ts: Date.now(),
+          externalId: this.docId,
+          platform: DocumentPlatforms.GoogleDocs,
+          oldHash: oldHash || undefined,
+          newHash: newHash,
+          ops,
+          title: this.extractTitle(),
+        });
         console.log(payloadStr);
 
         // TODO: To be implemented at a later date (not by CLAUDE)
